@@ -1,5 +1,8 @@
 #!/usr/bin/env python2.7
 
+import sys
+sys.path.append('/opt/hydra/')
+
 import argparse
 import bnpy
 import logging
@@ -7,60 +10,23 @@ import numpy as np
 import os
 import pandas as pd
 import shutil
-import errno
 
-def ens_to_hugo(ens_to_hugo_filepath='/opt/typhon/data/EnsGeneID_Hugo_Observed_Conversions.txt'):
-    ens_to_hugo_dict = {}
-    with open(ens_to_hugo_filepath) as f:
-        header = next(f)
-        for line in f:
-            hugo, ens = line.strip().split('\t')
-            ens_to_hugo_dict[ens] = hugo
-    return ens_to_hugo_dict
+import library.analysis as hydra
+from library.utils import mkdir_p
+from library.fit import get_assignments
 
-# mkdir_p from hydra library/utils.py
-def mkdir_p(path):
-    """
-    https://stackoverflow.com/questions/600268/mkdir-p-functionality-in-python
-    :param path:
-    :return:
-    """
-    try:
-        os.makedirs(path)
-    except OSError as exc:  # Python >2.5
-        if exc.errno == errno.EEXIST and os.path.isdir(path):
-            pass
-        else:
-            raise
 
-# get_assignments from hydra library/fit.py
-def get_assignments(model, data):
-    """
-    Takes model and data and classifies samples
-    Will label samples with NaN if they do not
-    fit in any of the model components
-    :param model:
-    :param data:
-    :return:
-    """
-    unclass = 1 - np.sum(model.allocModel.get_active_comp_probs())
-    # Get the sample assignments
-    LP = model.calc_local_params(data)
-    asnmts = []
-    for row in range(LP['resp'].shape[0]):
-        _max = np.max(LP['resp'][row, :])
-        if _max < unclass:
-            asnmts.append(np.nan)
+ens_to_hugo = {}
+with open('/opt/typhon/data/EnsGeneID_Hugo_Observed_Conversions.txt') as f:
+    header = next(f)
+    for line in f:
+        hugo, ens = line.strip().split('\t')
+        ens_to_hugo[ens] = hugo
 
-        else:
-            _arg = np.argmax(LP['resp'][row, :])
-            asnmts.append(_arg)
 
-    return asnmts
-
-def fit_models(data, diagnosis, output_dir, models_root_dir='/opt/typhon/models/'):
+def fit_models(data, diagnosis, output_dir):
     logger = logging.getLogger('root')
-    models_pth = os.path.join(models_root_dir, diagnosis)
+    models_pth = os.path.join('/opt/typhon/models/', diagnosis)
 
     # Load Enrichment Analysis
     for model in os.listdir(models_pth):
@@ -130,7 +96,7 @@ def main():
 
     data = pd.read_csv(args.RSEM, sep='\t')
 
-    data['hugo'] = data['gene_id'].map(ens_to_hugo())
+    data['hugo'] = data['gene_id'].map(ens_to_hugo)
     tpm = data.reindex(['hugo', 'TPM'], axis=1).groupby('hugo').sum()
     exp = np.log2(tpm + 1)
 
