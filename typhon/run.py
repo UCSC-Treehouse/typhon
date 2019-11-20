@@ -34,11 +34,14 @@ def fit_models(data, diagnosis, output_dir):
         model_pth = os.path.join(models_pth, model, model)
         hmodel = bnpy.ioutil.ModelReader.load_model_at_prefix(model_pth,
                                                               prefix=model)
+        # Load original training data
         train_pth = os.path.join(models_pth, model, model, 'training-data.tsv')
         train_data = pd.read_csv(train_pth, sep='\t', index_col=0)
-        _data = data.reindex(train_data.index).values
-        xdata = bnpy.data.XData(_data.reshape(len(_data), 1))
-        assignment = get_assignments(hmodel, xdata).pop()
+
+        fit = hydra.PreFitMultivariateModel(hmodel, train_data)
+        assignment, subgsea = fit.sub_cluster_gsea(data['TPM'])
+
+        # Place model in cluster
         logger.debug("Place in cluster %d" % assignment)
         if pd.isnull(assignment):
             logger.info("WARNING: Could not classify sample!")
@@ -46,10 +49,12 @@ def fit_models(data, diagnosis, output_dir):
 
         output_dir = os.path.join(output_dir, model)
         mkdir_p(output_dir)
-        feature_src = os.path.join(os.path.join(models_pth, model, 'features', str(assignment)))
-        feature_dest = os.path.join(output_dir, 'CLUSTER%d' % assignment)
-        shutil.copytree(feature_src, feature_dest)
+        feature_src = os.path.join(models_pth, model, 'features', str(assignment), "cluster-GSEA.tsv")
+        feature_dest = os.path.join(output_dir, 'CLUSTER_GSEA_%d' % assignment)
+        shutil.copyfile(feature_src, feature_dest)
 
+        sub_dest = os.path.join(output_dir, 'SUBCLUSTER_GSEA_%d' % assignment)
+        subgsea.sort_values("NES", ascending=False).to_csv(sub_dest, sep='\t')
 
 def main():
     """
@@ -91,17 +96,20 @@ def main():
     logging.basicConfig(filename=os.path.join(args.output_dir, 'typhon.log'),
                         level=level)
     logging.getLogger().addHandler(logging.StreamHandler())
-
     logger = logging.getLogger('root')
 
+
+    # Read in RSEM file
     data = pd.read_csv(args.RSEM, sep='\t')
 
+    # Convert to hugo ids
     data['hugo'] = data['gene_id'].map(ens_to_hugo)
     tpm = data.reindex(['hugo', 'TPM'], axis=1).groupby('hugo').sum()
     exp = np.log2(tpm + 1)
 
     logger.info("Starting run...")
     fit_models(exp, args.diagnosis, args.output_dir)
+
 
 if __name__ == '__main__':
     main()
